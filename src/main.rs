@@ -32,26 +32,28 @@ impl CursorController {
         }
     }
 
-    fn move_cursor(&mut self, direction: char) {
+    fn move_cursor(&mut self, direction: KeyCode) {
         match direction {
-            'k' => {
+            KeyCode::Char('k') | KeyCode::Up => {
                 self.cursor_y = self.cursor_y.saturating_sub(1);
             }
-            'h' => {
+            KeyCode::Char('h') | KeyCode::Left => {
                 if self.cursor_x != 0 {
                     self.cursor_x -= 1;
                 }
             }
-            'j' => {
+            KeyCode::Char('j') | KeyCode::Down => {
                 if self.cursor_y != self.screen_rows - 1 {
                     self.cursor_y += 1;
                 }
             }
-            'l' => {
+            KeyCode::Char('l') | KeyCode::Right => {
                 if self.cursor_x != self.screen_columns - 1 {
                     self.cursor_x += 1;
                 }
             }
+            KeyCode::End => self.cursor_x = self.screen_columns - 1,
+            KeyCode::Home => self.cursor_x = 0,
             _ => unimplemented!(),
         }
     }
@@ -161,7 +163,7 @@ impl Output {
         self.editor_contents.flush()
     }
 
-    fn move_cursor(&mut self, direction: char) {
+    fn move_cursor(&mut self, direction: KeyCode) {
         self.cursor_controller.move_cursor(direction);
     }
 }
@@ -197,9 +199,28 @@ impl Editor {
                 modifiers: KeyModifiers::CONTROL,
             } => return Ok(false),
             KeyEvent {
-                code: KeyCode::Char(val @ ('k' | 'h' | 'j' | 'l')),
+                code:
+                direction
+                @
+                (KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Char('k' | 'h' | 'j' | 'l')
+                | KeyCode::Home
+                | KeyCode::End),
                 modifiers: KeyModifiers::NONE,
-            } => self.output.move_cursor(val),
+            } => self.output.move_cursor(direction),
+            KeyEvent {
+                code: val @ (KeyCode::PageUp | KeyCode::PageDown),
+                modifiers: KeyModifiers::NONE,
+            } => (0..self.output.win_size.1).for_each(|_| {
+                self.output.move_cursor(if matches!(val, KeyCode::PageUp) {
+                    KeyCode::Up
+                } else {
+                    KeyCode::Down
+                });
+            }),
             _ => {}
         }
         Ok(true)
