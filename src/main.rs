@@ -15,6 +15,48 @@ impl Drop for CleanUp {
     }
 }
 
+struct CursorController {
+    cursor_x: usize,
+    cursor_y: usize,
+    screen_columns: usize,
+    screen_rows: usize,
+}
+
+impl CursorController {
+    fn new(win_size: (usize, usize)) -> Self {
+        Self {
+            cursor_x: 0,
+            cursor_y: 0,
+            screen_columns: win_size.0,
+            screen_rows: win_size.1,
+        }
+    }
+
+    fn move_cursor(&mut self, direction: char) {
+        match direction {
+            'k' => {
+                self.cursor_y = self.cursor_y.saturating_sub(1);
+            }
+            'h' => {
+                if self.cursor_x != 0 {
+                    self.cursor_x -= 1;
+                }
+            }
+            'j' => {
+                if self.cursor_y != self.screen_rows - 1 {
+                    self.cursor_y += 1;
+                }
+            }
+            'l' => {
+                if self.cursor_x != self.screen_columns - 1 {
+                    self.cursor_x += 1;
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+}
+
 struct EditorContents {
     content: String,
 }
@@ -57,6 +99,7 @@ impl Write for EditorContents {
 struct Output {
     win_size: (usize, usize),
     editor_contents: EditorContents,
+    cursor_controller: CursorController,
 }
 
 impl Output {
@@ -67,13 +110,29 @@ impl Output {
         Self {
             win_size,
             editor_contents: EditorContents::new(),
+            cursor_controller: CursorController::new(win_size),
         }
     }
 
     fn draw_rows(&mut self) {
         let screen_rows = self.win_size.1;
+        let screen_columns = self.win_size.0;
         for i in 0..screen_rows {
-            self.editor_contents.push('~');
+            if i == screen_rows / 3 {
+                let mut welcome = format!("Virm Editor --- Version {}", "0.0.1");
+                if welcome.len() > screen_columns {
+                    welcome.truncate(screen_columns)
+                }
+                let mut padding = (screen_columns - welcome.len()) / 2;
+                if padding != 0 {
+                    self.editor_contents.push('~');
+                    padding -= 1
+                }
+                (0..padding).for_each(|_| self.editor_contents.push(' '));
+                self.editor_contents.push_str(&welcome);
+            } else {
+                self.editor_contents.push('~');
+            }
             queue!(
                 self.editor_contents,
                 terminal::Clear(ClearType::UntilNewLine)
@@ -92,8 +151,18 @@ impl Output {
     fn refresh_screen(&mut self) -> crossterm::Result<()> {
         queue!(self.editor_contents, cursor::Hide, cursor::MoveTo(0, 0))?;
         self.draw_rows();
-        queue!(self.editor_contents, cursor::MoveTo(0, 0), cursor::Show)?;
+        let cursor_x = self.cursor_controller.cursor_x;
+        let cursor_y = self.cursor_controller.cursor_y;
+        queue!(
+            self.editor_contents,
+            cursor::MoveTo(cursor_x as u16, cursor_y as u16),
+            cursor::Show
+        )?;
         self.editor_contents.flush()
+    }
+
+    fn move_cursor(&mut self, direction: char) {
+        self.cursor_controller.move_cursor(direction);
     }
 }
 
@@ -121,12 +190,16 @@ impl Editor {
         Self { reader: Reader, output: Output::new() }
     }
 
-    fn process_keypress(&self) -> crossterm::Result<bool> {
+    fn process_keypress(&mut self) -> crossterm::Result<bool> {
         match self.reader.read_key()? {
             KeyEvent {
                 code: KeyCode::Char('q'),
                 modifiers: KeyModifiers::CONTROL,
             } => return Ok(false),
+            KeyEvent {
+                code: KeyCode::Char(val @ ('k' | 'h' | 'j' | 'l')),
+                modifiers: KeyModifiers::NONE,
+            } => self.output.move_cursor(val),
             _ => {}
         }
         Ok(true)
